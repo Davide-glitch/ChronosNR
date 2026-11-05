@@ -1,0 +1,27 @@
+# OMNeT++ build directories and generated files
+out/
+Makefile
+*_m.h
+*_m.cc
+*.o
+*.d
+*.exe
+.oppbuildspec
+
+# Simulation output telemetry (scalars and vectors)
+*.sca
+*.vec
+simulations/results/*.sca
+simulations/results/*.vec
+!simulations/results/.gitkeep
+
+# Generated plot images (if tracked separately, otherwise populated by scripts/plot_results.py)
+!docs/plots/.gitkeep
+
+# Python cache
+__pycache__/
+*.pyc
+
+# System and editor files
+.DS_Store
+Thumbs.db
