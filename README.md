@@ -90,8 +90,6 @@ ChronosNR/
 │       ├── plot2_priority_weights.png    # Chart 2: WRR Delay by Priority Weight (W=6, 2, 1)
 │       └── plot3_embb_vs_urllc.png       # Chart 3: Dual-Timescale Latency (1ms vs 0.1ms)
 │
-├── .vscode/
-│   └── c_cpp_properties.json             # VS Code C++17 IntelliSense configuration
 ├── .gitignore                            # Ignores out/, Makefile, *_m.*, and raw telemetry
 └── README.md                             # Documentation & architecture
 ```
@@ -110,3 +108,4 @@ Once the simulations and plotting script are executed, generated figures are sav
 
 ### 3. Dual-Timescale Latency (eMBB vs. URLLC)
 ![Dual-Timescale Latency](docs/plots/plot3_embb_vs_urllc.png)
+
