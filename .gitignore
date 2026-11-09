@@ -1,6 +1,9 @@
 # OMNeT++ build directories and generated files
 out/
 Makefile
+src/Makefile
+src/src
+src/ChronosNR
 *_m.h
 *_m.cc
 *.o
@@ -11,8 +14,12 @@ Makefile
 # Simulation output telemetry (scalars and vectors)
 *.sca
 *.vec
+*.vci
+*.anf
 simulations/results/*.sca
 simulations/results/*.vec
+simulations/results/*.vci
+simulations/results/*.anf
 !simulations/results/.gitkeep
 
 # Generated plot images (if tracked separately, otherwise populated by scripts/plot_results.py)

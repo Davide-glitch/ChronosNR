@@ -200,11 +200,9 @@ network ChronosNRNetwork
         }
         urllcScheduler.grantOut --> urllcUser.grantIn;
 
-        for u=0..numUsers-1 {
-            for b=0..numPRBs-1 {
-                embbUser[u].prbOut[b] --> prb[b].embbIn[u];
-                prb[b].feedbackOut[u] --> embbUser[u].feedbackIn[b];
-            }
+        for u=0..numUsers-1, for b=0..numPRBs-1 {
+            embbUser[u].prbOut[b] --> prb[b].embbIn[u];
+            prb[b].feedbackOut[u] --> embbUser[u].feedbackIn[b];
         }
 
         for b=0..numPRBs-1 {
