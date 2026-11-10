@@ -99,9 +99,15 @@ void PrbChannel::refreshDisplay() const {
 
 void PrbChannel::finish() {
   cancelAndDelete(endEmbbSlotTimer);
+  endEmbbSlotTimer = nullptr;
   cancelAndDelete(endUrllcMinislotTimer);
-  if (currentEmbbCopy != nullptr)
+  endUrllcMinislotTimer = nullptr;
+  if (currentEmbbCopy != nullptr) {
     delete currentEmbbCopy;
-  if (currentUrllcBlock != nullptr)
+    currentEmbbCopy = nullptr;
+  }
+  if (currentUrllcBlock != nullptr) {
     delete currentUrllcBlock;
+    currentUrllcBlock = nullptr;
+  }
 }

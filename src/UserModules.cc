@@ -37,6 +37,7 @@ class PacketGenerator : public cSimpleModule {
 
     virtual void finish() override {
         cancelAndDelete(sendTimer);
+        sendTimer = nullptr;
     }
 };
 

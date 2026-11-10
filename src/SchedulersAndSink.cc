@@ -154,6 +154,7 @@ class EmbbScheduler : public cSimpleModule {
 
     virtual void finish() override {
         cancelAndDelete(cycleTimer);
+        cycleTimer = nullptr;
     }
 };
 
@@ -246,6 +247,7 @@ class UrllcScheduler : public cSimpleModule {
 
     virtual void finish() override {
         cancelAndDelete(cycleTimer);
+        cycleTimer = nullptr;
     }
 };
 
