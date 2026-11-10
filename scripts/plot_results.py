@@ -19,7 +19,8 @@ def parse_sca(filepath):
             if line.startswith("itervar "):
                 parts = line.split()
                 if len(parts) >= 3:
-                    data["itervars"][parts[1]] = parts[2].strip('"')
+                    val = parts[2].replace('\\', '').replace('"', '').strip()
+                    data["itervars"][parts[1]] = val
             elif line.startswith("scalar "):
                 m = re.match(r'^scalar\s+(\S+)\s+(\S+)\s+([0-9.eE+-]+)', line)
                 if m:
