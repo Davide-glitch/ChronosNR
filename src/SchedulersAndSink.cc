@@ -299,6 +299,7 @@ class RadioSink : public cSimpleModule {
     std::vector<long> userBlocksDelivered;
     std::vector<simtime_t> userDelaySum;
     cTextFigure *hudFigure = nullptr;
+    cTextFigure *sinkStatsFigure = nullptr;
 
   protected:
     virtual void initialize() override {
@@ -312,6 +313,7 @@ class RadioSink : public cSimpleModule {
         cCanvas *canvas = getParentModule()->getCanvas();
         if (canvas != nullptr) {
             hudFigure = check_and_cast_nullable<cTextFigure *>(canvas->getFigure("hudText"));
+            sinkStatsFigure = check_and_cast_nullable<cTextFigure *>(canvas->getFigure("sinkStatsText"));
         }
     }
 
@@ -341,17 +343,22 @@ class RadioSink : public cSimpleModule {
         double embbAvgMs = (totalEmbbDelivered > 0) ? (totalEmbbDelaySum.dbl() * 1000.0 / totalEmbbDelivered) : 0.0;
         double urllcAvgMs = (totalUrllcDelivered > 0) ? (totalUrllcDelaySum.dbl() * 1000.0 / totalUrllcDelivered) : 0.0;
 
-        char sinkBuf[128];
-        std::snprintf(sinkBuf, sizeof(sinkBuf),
-                      "DELIVERED\neMBB: %ld (%.2f ms)\nURLLC: %ld (%.3f ms)",
-                      totalEmbbDelivered, embbAvgMs, totalUrllcDelivered, urllcAvgMs);
-        getDisplayString().setTagArg("t", 0, sinkBuf);
+        getDisplayString().setTagArg("t", 0, "5G gNB Receiver");
         getDisplayString().setTagArg("t", 2, "#581c87");
+
+        if (sinkStatsFigure != nullptr) {
+            char cardBuf[256];
+            std::snprintf(cardBuf, sizeof(cardBuf),
+                "gNB RECEIVER TELEMETRY\neMBB Blocks : %ld (%.2f ms)\nURLLC Blocks: %ld (%.3f ms)\nPunctures   : %ld | Retx: %ld",
+                totalEmbbDelivered, embbAvgMs, totalUrllcDelivered, urllcAvgMs,
+                PrbChannel::getTotalPuncturesGlobal(), EmbbUserBuffer::getTotalRetxGlobal());
+            sinkStatsFigure->setText(cardBuf);
+        }
 
         if (hudFigure != nullptr) {
             char hudBuf[256];
             std::snprintf(hudBuf, sizeof(hudBuf),
-                "t = %.3f ms  |  eMBB Delivered: %ld (Avg Delay: %.2f ms)  |  URLLC Delivered: %ld (Avg Delay: %.3f ms)  |  Punctured PRBs: %ld  |  High-Prio Retx: %ld",
+                "t = %.2f ms | eMBB: %ld (%.2f ms) | URLLC: %ld (%.3f ms) | Punctured: %ld | High-Prio Retx: %ld",
                 simTime().dbl() * 1000.0, totalEmbbDelivered, embbAvgMs,
                 totalUrllcDelivered, urllcAvgMs,
                 PrbChannel::getTotalPuncturesGlobal(), EmbbUserBuffer::getTotalRetxGlobal());
