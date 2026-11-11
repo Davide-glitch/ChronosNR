@@ -2,8 +2,6 @@
 import glob
 import os
 import re
-import matplotlib
-matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -29,10 +27,10 @@ def parse_sca(filepath):
     return data
 
 iat_to_load = {
-    "1.66ms": 30,
-    "1.0ms": 50,
-    "0.71ms": 70,
-    "0.55ms": 90
+    "0.85ms": 30,
+    "0.65ms": 50,
+    "0.54ms": 70,
+    "0.46ms": 90
 }
 
 sweep_files = sorted(glob.glob(os.path.join(RESULTS_DIR, "LoadAndPolicySweep-*.sca")))
@@ -60,18 +58,14 @@ for fp in sweep_files:
             "lp_ms": (u3_ms + u4_ms) / 2.0
         })
 
-if not records:
-    print(f"[plot_results.py] No LoadAndPolicySweep-*.sca files found in {RESULTS_DIR}. Run simulations first.")
-    exit(0)
-
 # --- PLOT 1: Mean eMBB Delay vs. Network Load across Scheduling Policies ---
 plt.figure(figsize=(8, 5))
 markers = {"WRR": "o", "PF": "s", "MAX_CI": "^", "RR": "d"}
-for pol in ["WRR", "PF", "MAX_CI", "RR"]:
+for pol in ["PF", "MAX_CI", "WRR", "RR"]:
     pts = sorted([r for r in records if r["policy"] == pol], key=lambda x: x["load"])
     if pts:
         plt.plot([p["load"] for p in pts], [p["embb_ms"] for p in pts],
-                 marker=markers.get(pol, "o"), linewidth=2, label=f"Policy: {pol}")
+                 marker=markers.get(pol, "o"), linewidth=2.2, label=f"Policy: {pol}")
 
 plt.title("ChronosNR: 5G eMBB Mean Block Delay vs. Network Load (Under URLLC Puncturing)")
 plt.xlabel("Network Load (%)")
@@ -119,4 +113,4 @@ if pf_pts:
     plt.savefig(os.path.join(PLOTS_DIR, "plot3_embb_vs_urllc.png"), dpi=160)
     plt.close()
 
-print(f"==> Benchmark charts generated in {PLOTS_DIR}")
+print("==> Saved updated PNG plots into docs/plots/")

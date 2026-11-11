@@ -8,6 +8,7 @@ class EmbbScheduler : public cSimpleModule {
     simtime_t cycle;
     std::string schedulingPolicy;
     cMessage *cycleTimer = nullptr;
+    long slotCounter = 0;
 
     std::vector<EmbbUserBuffer*> userBuffers;
     std::vector<int> virtualQueueCredits;
@@ -16,12 +17,13 @@ class EmbbScheduler : public cSimpleModule {
     std::vector<double> userCqi;
     std::vector<double> avgRate;
     int rrPointer = 0;
+    int retxPointer = 0;
 
   protected:
     virtual void initialize() override {
         numUsers = par("numUsers");
         numPRBs = par("numPRBs");
-        cycle = par("cycle");
+        cycle = SimTime(par("cycle").doubleValueInUnit("s"));
         schedulingPolicy = par("schedulingPolicy").stdstringValue();
 
         userBuffers.resize(numUsers, nullptr);
@@ -44,6 +46,7 @@ class EmbbScheduler : public cSimpleModule {
 
     virtual void handleMessage(cMessage *msg) override {
         if (msg == cycleTimer) {
+            slotCounter++;
             runEmbbSchedulingCycle();
             scheduleAt(simTime() + cycle, cycleTimer);
         }
@@ -53,7 +56,8 @@ class EmbbScheduler : public cSimpleModule {
         for (int u = 0; u < numUsers; u++) {
             virtualRetxPending[u] = userBuffers[u]->getRetxQueueLength();
             virtualWaitPending[u] = userBuffers[u]->getWaitingQueueLength();
-            userCqi[u] = (u < numUsers / 2) ? intuniform(4, 10) : intuniform(1, 5);
+            // Section VI of Anand et al.: Robust users {4..10}, Sensitive users {1..5}
+            userCqi[u] = (u < 3) ? intuniform(4, 10) : intuniform(1, 5);
         }
 
         for (int b = 0; b < numPRBs; b++) {
@@ -63,17 +67,21 @@ class EmbbScheduler : public cSimpleModule {
             }
 
             int chosenUser = -1;
+            bool isRetxGrant = false;
 
+            // PASS 1: Strict High-Priority Retransmission Queue
             for (int i = 0; i < numUsers; i++) {
-                int u = (rrPointer + i) % numUsers;
+                int u = (retxPointer + i) % numUsers;
                 if (virtualRetxPending[u] > 0) {
                     chosenUser = u;
                     virtualRetxPending[u]--;
-                    rrPointer = (u + 1) % numUsers;
+                    retxPointer = (u + 1) % numUsers;
+                    isRetxGrant = true;
                     break;
                 }
             }
 
+            // PASS 2: Normal Queue Allocation (WRR, PF, MAX_CI, RR)
             if (chosenUser == -1) {
                 chosenUser = selectNormalUser();
                 if (chosenUser != -1) {
@@ -85,9 +93,14 @@ class EmbbScheduler : public cSimpleModule {
                 break;
             }
 
+            // Channel-blind schedulers (RR/WRR) may schedule users during a deep fade (CQI <= 2)
+            bool fadeLoss = (!isRetxGrant && userCqi[chosenUser] <= 2 && uniform(0.0, 1.0) < 0.35);
+
             SchedGrant *grant = new SchedGrant("eMBB_Grant");
+            grant->setDisplayString("b=10,10,rect,#f59e0b,#d97706,1");
             grant->setSchedulingPriority(2);
             grant->setAssignedPrb(b);
+            grant->setDeepFade(fadeLoss);
             send(grant, "grantOut", chosenUser);
         }
     }
@@ -133,7 +146,9 @@ class EmbbScheduler : public cSimpleModule {
             double bestMetric = -1.0;
             for (int u = 0; u < numUsers; u++) {
                 if (virtualWaitPending[u] > 0) {
-                    double m = (schedulingPolicy == "MAX_CI") ? userCqi[u] : (userCqi[u] / avgRate[u]);
+                    double m = (schedulingPolicy == "MAX_CI")
+                        ? userCqi[u]
+                        : ((userCqi[u] * (1.0 + 0.15 * virtualWaitPending[u])) / avgRate[u]);
                     if (m > bestMetric) {
                         bestMetric = m;
                         bestU = u;
@@ -152,6 +167,13 @@ class EmbbScheduler : public cSimpleModule {
         return -1;
     }
 
+    virtual void refreshDisplay() const override {
+        char buf[64];
+        std::snprintf(buf, sizeof(buf), "1.0ms Slot #%ld [%s]", slotCounter, schedulingPolicy.c_str());
+        getDisplayString().setTagArg("t", 0, buf);
+        getDisplayString().setTagArg("t", 2, "#b45309");
+    }
+
     virtual void finish() override {
         cancelAndDelete(cycleTimer);
         cycleTimer = nullptr;
@@ -166,6 +188,7 @@ class UrllcScheduler : public cSimpleModule {
     simtime_t cycle;
     cMessage *cycleTimer = nullptr;
     UrllcQueueModule *urllcBuffer = nullptr;
+    long minislotCounter = 0;
 
     simsignal_t urllcFreeChannelSignal;
     simsignal_t urllcPunctureChannelSignal;
@@ -173,7 +196,7 @@ class UrllcScheduler : public cSimpleModule {
   protected:
     virtual void initialize() override {
         numPRBs = par("numPRBs");
-        cycle = par("cycle");
+        cycle = SimTime(par("cycle").doubleValueInUnit("s"));
         cModule *bufMod = getParentModule()->getSubmodule("urllcUser")->getSubmodule("buffer");
         urllcBuffer = check_and_cast<UrllcQueueModule *>(bufMod);
 
@@ -187,6 +210,7 @@ class UrllcScheduler : public cSimpleModule {
 
     virtual void handleMessage(cMessage *msg) override {
         if (msg == cycleTimer) {
+            minislotCounter++;
             runUrllcMinislotCycle();
             scheduleAt(simTime() + cycle, cycleTimer);
         }
@@ -211,9 +235,10 @@ class UrllcScheduler : public cSimpleModule {
             if (targetPrb != -1) {
                 assignedThisMinislot[targetPrb] = true;
                 pendingUrllc--;
-                emit(urllcFreeChannelSignal, (long)1);
+                emit(urllcFreeChannelSignal, 1);
 
                 SchedGrant *grant = new SchedGrant("URLLC_Free_Grant");
+                grant->setDisplayString("b=10,10,rect,#06b6d4,#0891b2,2");
                 grant->setSchedulingPriority(4);
                 grant->setAssignedPrb(targetPrb);
                 send(grant, "grantOut");
@@ -229,13 +254,14 @@ class UrllcScheduler : public cSimpleModule {
             }
 
             if (!occupiedCandidates.empty()) {
-                int randIdx = intuniform(0, (int)occupiedCandidates.size() - 1);
+                int randIdx = intuniform(0, occupiedCandidates.size() - 1);
                 targetPrb = occupiedCandidates[randIdx];
                 assignedThisMinislot[targetPrb] = true;
                 pendingUrllc--;
-                emit(urllcPunctureChannelSignal, (long)1);
+                emit(urllcPunctureChannelSignal, 1);
 
                 SchedGrant *grant = new SchedGrant("URLLC_Puncture_Grant");
+                grant->setDisplayString("b=12,12,rect,#ef4444,#b91c1c,2");
                 grant->setSchedulingPriority(4);
                 grant->setAssignedPrb(targetPrb);
                 send(grant, "grantOut");
@@ -243,6 +269,13 @@ class UrllcScheduler : public cSimpleModule {
                 break;
             }
         }
+    }
+
+    virtual void refreshDisplay() const override {
+        char buf[64];
+        std::snprintf(buf, sizeof(buf), "0.1ms Minislot #%ld", minislotCounter);
+        getDisplayString().setTagArg("t", 0, buf);
+        getDisplayString().setTagArg("t", 2, "#b91c1c");
     }
 
     virtual void finish() override {
@@ -265,6 +298,7 @@ class RadioSink : public cSimpleModule {
     simtime_t totalUrllcDelaySum = SIMTIME_ZERO;
     std::vector<long> userBlocksDelivered;
     std::vector<simtime_t> userDelaySum;
+    cTextFigure *hudFigure = nullptr;
 
   protected:
     virtual void initialize() override {
@@ -274,6 +308,11 @@ class RadioSink : public cSimpleModule {
         embbRetxCountSignal = registerSignal("embbRetxCountSignal");
         userBlocksDelivered.assign(numUsers, 0);
         userDelaySum.assign(numUsers, SIMTIME_ZERO);
+
+        cCanvas *canvas = getParentModule()->getCanvas();
+        if (canvas != nullptr) {
+            hudFigure = check_and_cast_nullable<cTextFigure *>(canvas->getFigure("hudText"));
+        }
     }
 
     virtual void handleMessage(cMessage *msg) override {
@@ -289,7 +328,7 @@ class RadioSink : public cSimpleModule {
                 userDelaySum[u] += delay;
             }
             emit(embbDelaySignal, delay);
-            emit(embbRetxCountSignal, (long)pkt->getRetxCount());
+            emit(embbRetxCountSignal, pkt->getRetxCount());
         } else {
             totalUrllcDelivered++;
             totalUrllcDelaySum += delay;
@@ -299,9 +338,25 @@ class RadioSink : public cSimpleModule {
     }
 
     virtual void refreshDisplay() const override {
-        char buf[64];
-        std::snprintf(buf, sizeof(buf), "eMBB:%ld | URLLC:%ld", totalEmbbDelivered, totalUrllcDelivered);
-        getDisplayString().setTagArg("t", 0, buf);
+        double embbAvgMs = (totalEmbbDelivered > 0) ? (totalEmbbDelaySum.dbl() * 1000.0 / totalEmbbDelivered) : 0.0;
+        double urllcAvgMs = (totalUrllcDelivered > 0) ? (totalUrllcDelaySum.dbl() * 1000.0 / totalUrllcDelivered) : 0.0;
+
+        char sinkBuf[128];
+        std::snprintf(sinkBuf, sizeof(sinkBuf),
+                      "DELIVERED\neMBB: %ld (%.2f ms)\nURLLC: %ld (%.3f ms)",
+                      totalEmbbDelivered, embbAvgMs, totalUrllcDelivered, urllcAvgMs);
+        getDisplayString().setTagArg("t", 0, sinkBuf);
+        getDisplayString().setTagArg("t", 2, "#581c87");
+
+        if (hudFigure != nullptr) {
+            char hudBuf[256];
+            std::snprintf(hudBuf, sizeof(hudBuf),
+                "t = %.3f ms  |  eMBB Delivered: %ld (Avg Delay: %.2f ms)  |  URLLC Delivered: %ld (Avg Delay: %.3f ms)  |  Punctured PRBs: %ld  |  High-Prio Retx: %ld",
+                simTime().dbl() * 1000.0, totalEmbbDelivered, embbAvgMs,
+                totalUrllcDelivered, urllcAvgMs,
+                PrbChannel::getTotalPuncturesGlobal(), EmbbUserBuffer::getTotalRetxGlobal());
+            hudFigure->setText(hudBuf);
+        }
     }
 
     virtual void finish() override {

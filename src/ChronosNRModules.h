@@ -22,6 +22,7 @@ class PrbChannel : public cSimpleModule {
     FiveGBlock *currentUrllcBlock = nullptr;
     bool overwrittenByUrllc = false;
     int overwriteCountThisSlot = 0;
+    static long totalPuncturesGlobal;
 
   protected:
     virtual void initialize() override;
@@ -30,10 +31,11 @@ class PrbChannel : public cSimpleModule {
     virtual void finish() override;
 
   public:
-    virtual ~PrbChannel() {}
     bool isCompletelyFree() const { return (currentEmbbCopy == nullptr) && (currentUrllcBlock == nullptr); }
     bool isOccupiedByEmbb() const { return (currentEmbbCopy != nullptr); }
     bool isBusyWithUrllcThisMinislot() const { return (currentUrllcBlock != nullptr); }
+    static long getTotalPuncturesGlobal() { return totalPuncturesGlobal; }
+    static void resetTotalPuncturesGlobal() { totalPuncturesGlobal = 0; }
 };
 
 class EmbbUserBuffer : public cSimpleModule {
@@ -48,6 +50,7 @@ class EmbbUserBuffer : public cSimpleModule {
 
     simsignal_t retxQueuedSignal;
     simsignal_t keptDroppedSignal;
+    static long totalRetxGlobal;
 
   protected:
     virtual void initialize() override;
@@ -56,11 +59,12 @@ class EmbbUserBuffer : public cSimpleModule {
     virtual void finish() override;
 
   public:
-    virtual ~EmbbUserBuffer() {}
     int getRetxQueueLength() const { return highPrioRetxQueue.getLength(); }
     int getWaitingQueueLength() const { return waitingQueue.getLength(); }
     int getTotalSchedulableLength() const { return highPrioRetxQueue.getLength() + waitingQueue.getLength(); }
     int getUserWeight() const { return userWeight; }
+    static long getTotalRetxGlobal() { return totalRetxGlobal; }
+    static void resetTotalRetxGlobal() { totalRetxGlobal = 0; }
 };
 
 class UrllcQueueModule : public cSimpleModule {
@@ -75,7 +79,6 @@ class UrllcQueueModule : public cSimpleModule {
     virtual void finish() override;
 
   public:
-    virtual ~UrllcQueueModule() {}
     int getQueueLength() const { return urllcWaitingQueue.getLength(); }
 };
 

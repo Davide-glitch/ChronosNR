@@ -14,15 +14,19 @@ class PacketGenerator : public cSimpleModule {
         trafficClass = par("trafficClass");
         userId = par("userId");
         userWeight = par("userWeight");
+        if (trafficClass == 0 && userId == 0) globalBlockCounter = 0;
         sendTimer = new cMessage("sendTimer");
         sendTimer->setSchedulingPriority(3);
-        scheduleAt(simTime() + par("interArrivalTime"), sendTimer);
+        scheduleAt(simTime() + SimTime(par("interArrivalTime").doubleValueInUnit("s")), sendTimer);
     }
 
     virtual void handleMessage(cMessage *msg) override {
         if (msg == sendTimer) {
             const char *name = (trafficClass == 0) ? "eMBB_Block" : "URLLC_Block";
             FiveGBlock *pkt = new FiveGBlock(name);
+            pkt->setDisplayString((trafficClass == 0)
+                ? "b=14,14,oval,#3b82f6,#1d4ed8,2"
+                : "b=16,16,oval,#ef4444,#b91c1c,3");
             pkt->setSchedulingPriority(3);
             pkt->setTrafficClass(trafficClass);
             pkt->setBlockId(++globalBlockCounter);
@@ -31,7 +35,7 @@ class PacketGenerator : public cSimpleModule {
             pkt->setCreationTime(simTime());
 
             send(pkt, "out");
-            scheduleAt(simTime() + par("interArrivalTime"), sendTimer);
+            scheduleAt(simTime() + SimTime(par("interArrivalTime").doubleValueInUnit("s")), sendTimer);
         }
     }
 
@@ -44,12 +48,14 @@ class PacketGenerator : public cSimpleModule {
 long PacketGenerator::globalBlockCounter = 0;
 Define_Module(PacketGenerator);
 
+long EmbbUserBuffer::totalRetxGlobal = 0;
 Define_Module(EmbbUserBuffer);
 
 void EmbbUserBuffer::initialize() {
     userId = par("userId");
     userWeight = par("userWeight");
     numPRBs = par("numPRBs");
+    if (userId == 0) totalRetxGlobal = 0;
 
     highPrioRetxQueue.setName("highPrioRetxQueue");
     keptQueue.setName("keptQueue");
@@ -82,12 +88,13 @@ void EmbbUserBuffer::handleMessage(cMessage *msg) {
                 keptOrig->setRetxCount(keptOrig->getRetxCount() + 1);
                 keptOrig->setOverwritten(false);
                 highPrioRetxQueue.insert(keptOrig);
-                emit(retxQueuedSignal, (long)1);
-                EV_WARN << "[eMBB User " << userId << "] Block #" << targetId
-                        << " was overwritten on PRB " << fb->getPrbIndex()
-                        << " -> Queued for HIGH-PRIORITY retransmission!\n";
+                totalRetxGlobal++;
+                emit(retxQueuedSignal, 1);
+                if (hasGUI() && getParentModule() != nullptr) {
+                    getParentModule()->bubble("HIGH-PRIO RETX QUEUED!");
+                }
             } else {
-                emit(keptDroppedSignal, (long)1);
+                emit(keptDroppedSignal, 1);
                 delete keptOrig;
             }
         }
@@ -96,11 +103,14 @@ void EmbbUserBuffer::handleMessage(cMessage *msg) {
     else if (msg->arrivedOn("grantIn")) {
         SchedGrant *grant = check_and_cast<SchedGrant *>(msg);
         int b = grant->getAssignedPrb();
+        bool deepFade = grant->getDeepFade();
         delete grant;
 
         FiveGBlock *origBlock = nullptr;
+        bool isRetx = false;
         if (!highPrioRetxQueue.isEmpty()) {
             origBlock = check_and_cast<FiveGBlock *>(highPrioRetxQueue.pop());
+            isRetx = true;
         } else if (!waitingQueue.isEmpty()) {
             origBlock = check_and_cast<FiveGBlock *>(waitingQueue.pop());
         }
@@ -109,8 +119,12 @@ void EmbbUserBuffer::handleMessage(cMessage *msg) {
             origBlock->setAssignedPrb(b);
 
             FiveGBlock *copyBlock = origBlock->dup();
-            copyBlock->setName("eMBB_Copy");
+            copyBlock->setName(isRetx ? "eMBB_RetxCopy" : "eMBB_Copy");
+            copyBlock->setDisplayString(isRetx
+                ? "b=16,16,oval,#f59e0b,#b45309,3"
+                : "b=14,14,oval,#3b82f6,#1d4ed8,2");
             copyBlock->setIsCopy(true);
+            copyBlock->setOverwritten(deepFade);
             copyBlock->setSchedulingPriority(2);
             send(copyBlock, "prbOut", b);
 
@@ -120,12 +134,14 @@ void EmbbUserBuffer::handleMessage(cMessage *msg) {
 }
 
 void EmbbUserBuffer::refreshDisplay() const {
-    char buf[80];
-    std::snprintf(buf, sizeof(buf), "W=%d | wait:%d kept:%d retx:%d",
+    char buf[96];
+    std::snprintf(buf, sizeof(buf), "W=%d | wait:%d | kept:%d | retx:%d",
                   userWeight, waitingQueue.getLength(), keptQueue.getLength(), highPrioRetxQueue.getLength());
     getDisplayString().setTagArg("t", 0, buf);
     if (getParentModule() != nullptr) {
         getParentModule()->getDisplayString().setTagArg("t", 0, buf);
+        getParentModule()->getDisplayString().setTagArg("t", 2,
+            (highPrioRetxQueue.getLength() > 0) ? "#dc2626" : "#1e3a8a");
     }
 }
 
@@ -153,6 +169,7 @@ void UrllcQueueModule::handleMessage(cMessage *msg) {
 
         if (!urllcWaitingQueue.isEmpty()) {
             FiveGBlock *urllcPkt = check_and_cast<FiveGBlock *>(urllcWaitingQueue.pop());
+            urllcPkt->setDisplayString("b=16,16,oval,#ef4444,#991b1b,3");
             urllcPkt->setAssignedPrb(b);
             urllcPkt->setSchedulingPriority(4);
             send(urllcPkt, "prbOut", b);
@@ -161,11 +178,12 @@ void UrllcQueueModule::handleMessage(cMessage *msg) {
 }
 
 void UrllcQueueModule::refreshDisplay() const {
-    char buf[48];
-    std::snprintf(buf, sizeof(buf), "URLLC wait:%d", urllcWaitingQueue.getLength());
+    char buf[64];
+    std::snprintf(buf, sizeof(buf), "URLLC wait:%d (0.1ms cycle)", urllcWaitingQueue.getLength());
     getDisplayString().setTagArg("t", 0, buf);
     if (getParentModule() != nullptr) {
         getParentModule()->getDisplayString().setTagArg("t", 0, buf);
+        getParentModule()->getDisplayString().setTagArg("t", 2, "#b91c1c");
     }
 }
 
